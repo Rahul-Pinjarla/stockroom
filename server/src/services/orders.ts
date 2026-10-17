@@ -8,10 +8,12 @@ export interface CreateOrderInput {
   discountCode?: string;
 }
 
+export type OrderStatus = 'paid' | 'partially_refunded' | 'refunded' | 'cancelled';
+
 export interface OrderSummary {
   id: number;
   customerEmail: string;
-  status: string;
+  status: OrderStatus;
   subtotal: number;
   discountCode: string | null;
   discountAmount: number;
@@ -28,10 +30,20 @@ export interface OrderItem {
   quantity: number;
   unitPrice: number;
   lineTotal: number;
+  refundedQuantity: number;
+}
+
+export interface OrderRefund {
+  id: number;
+  createdAt: string;
+  amount: number;
+  reason: string | null;
+  items: { orderItemId: number; name: string; quantity: number; amount: number }[];
 }
 
 export interface OrderDetail extends Omit<OrderSummary, 'itemCount'> {
   items: OrderItem[];
+  refunds: OrderRefund[];
 }
 
 interface OrderRow {
@@ -45,11 +57,18 @@ interface OrderRow {
   created_at: Date;
 }
 
-function toOrder(row: OrderRow) {
+// Refund state is derived from units, never stored, so it cannot drift from the refund rows.
+function deriveStatus(status: string, boughtUnits: number, refundedUnits: number): OrderStatus {
+  if (status === 'cancelled') return 'cancelled';
+  if (refundedUnits === 0) return 'paid';
+  return refundedUnits >= boughtUnits ? 'refunded' : 'partially_refunded';
+}
+
+function toOrder(row: OrderRow, boughtUnits: number, refundedUnits: number) {
   return {
     id: row.id,
     customerEmail: row.customer_email,
-    status: row.status,
+    status: deriveStatus(row.status, boughtUnits, refundedUnits),
     subtotal: toDollars(row.subtotal),
     discountCode: row.discount_code,
     discountAmount: toDollars(row.discount_amount),
@@ -60,7 +79,10 @@ function toOrder(row: OrderRow) {
 
 export async function listOrders(limit: number): Promise<OrderSummary[]> {
   const { rows } = await pool.query(
-    `SELECT o.*, COALESCE(SUM(oi.quantity), 0)::int AS item_count
+    `SELECT o.*, COALESCE(SUM(oi.quantity), 0)::int AS item_count,
+            (SELECT COALESCE(SUM(ri.quantity), 0)::int
+               FROM refund_items ri JOIN refunds r ON r.id = ri.refund_id
+              WHERE r.order_id = o.id) AS refunded_units
        FROM orders o
        LEFT JOIN order_items oi ON oi.order_id = o.id
       GROUP BY o.id
@@ -68,7 +90,7 @@ export async function listOrders(limit: number): Promise<OrderSummary[]> {
       LIMIT $1`,
     [limit],
   );
-  return rows.map((row) => ({ ...toOrder(row), itemCount: row.item_count }));
+  return rows.map((row) => ({ ...toOrder(row, row.item_count, row.refunded_units), itemCount: row.item_count }));
 }
 
 export async function getOrder(id: number): Promise<OrderDetail | null> {
@@ -76,7 +98,8 @@ export async function getOrder(id: number): Promise<OrderDetail | null> {
   if (rows.length === 0) return null;
 
   const { rows: items } = await pool.query(
-    `SELECT oi.id, oi.product_id, p.sku, p.name, oi.quantity, oi.unit_price, oi.line_total
+    `SELECT oi.id, oi.product_id, p.sku, p.name, oi.quantity, oi.unit_price, oi.line_total,
+            COALESCE((SELECT SUM(ri.quantity) FROM refund_items ri WHERE ri.order_item_id = oi.id), 0)::int AS refunded
        FROM order_items oi
        JOIN products p ON p.id = oi.product_id
       WHERE oi.order_id = $1
@@ -84,8 +107,38 @@ export async function getOrder(id: number): Promise<OrderDetail | null> {
     [id],
   );
 
+  const { rows: refundRows } = await pool.query(
+    `SELECT r.id, r.amount, r.reason, r.created_at,
+            ri.order_item_id, ri.quantity, ri.amount AS item_amount, p.name
+       FROM refunds r
+       JOIN refund_items ri ON ri.refund_id = r.id
+       JOIN order_items oi ON oi.id = ri.order_item_id
+       JOIN products p ON p.id = oi.product_id
+      WHERE r.order_id = $1
+      ORDER BY r.created_at DESC, r.id DESC, ri.id`,
+    [id],
+  );
+  const refunds: OrderRefund[] = [];
+  for (const row of refundRows) {
+    let refund = refunds.find((r) => r.id === row.id);
+    if (!refund) {
+      refund = { id: row.id, createdAt: row.created_at.toISOString(), amount: toDollars(row.amount), reason: row.reason, items: [] };
+      refunds.push(refund);
+    }
+    refund.items.push({
+      orderItemId: row.order_item_id,
+      name: row.name,
+      quantity: row.quantity,
+      amount: toDollars(row.item_amount),
+    });
+  }
+
+  const boughtUnits = items.reduce((sum, item) => sum + item.quantity, 0);
+  const refundedUnits = items.reduce((sum, item) => sum + item.refunded, 0);
+
   return {
-    ...toOrder(rows[0]),
+    ...toOrder(rows[0], boughtUnits, refundedUnits),
+    refunds,
     items: items.map((item) => ({
       id: item.id,
       productId: item.product_id,
@@ -94,6 +147,7 @@ export async function getOrder(id: number): Promise<OrderDetail | null> {
       quantity: item.quantity,
       unitPrice: toDollars(item.unit_price),
       lineTotal: toDollars(item.line_total),
+      refundedQuantity: item.refunded,
     })),
   };
 }

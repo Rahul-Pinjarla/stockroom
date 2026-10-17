@@ -60,3 +60,11 @@ export function expectWholeCents(value: number): void {
     throw new Error(`Expected a whole number of cents, got ${value}`);
   }
 }
+
+export function postRefund(orderId: number, body: unknown) {
+  return app.inject({ method: 'POST', url: `/api/orders/${orderId}/refunds`, payload: body as object });
+}
+
+export function previewRefund(orderId: number, body: unknown) {
+  return app.inject({ method: 'POST', url: `/api/orders/${orderId}/refunds/preview`, payload: body as object });
+}
