@@ -86,4 +86,38 @@ describe('GET /api/dashboard', () => {
       expect(revenueByDay.map((d) => d.day)).toEqual(['2026-06-15']);
     });
   });
+
+  describe('store timezone', () => {
+    const daysWithRevenue = (rows: { day: string; revenue: number }[]) =>
+      rows.filter((d) => d.revenue > 0).map((d) => d.day);
+
+    it('puts a late-evening order on the store-local day', async () => {
+      await createOrderRow(10, new Date('2026-06-14T01:30:00Z'));
+      const { revenueByDay } = await getDashboard(7, new Date('2026-06-15T16:00:00Z'));
+      expect(daysWithRevenue(revenueByDay)).toEqual(['2026-06-13']);
+    });
+
+    it('uses the winter offset', async () => {
+      await createOrderRow(10, new Date('2026-01-14T04:30:00Z'));
+      const { revenueByDay } = await getDashboard(7, new Date('2026-01-15T17:00:00Z'));
+      expect(daysWithRevenue(revenueByDay)).toEqual(['2026-01-13']);
+    });
+
+    it('splits days at local midnight', async () => {
+      await createOrderRow(10, new Date('2026-06-14T03:59:00Z'));
+      await createOrderRow(20, new Date('2026-06-14T04:00:00Z'));
+      const { revenueByDay } = await getDashboard(7, new Date('2026-06-15T16:00:00Z'));
+      expect(revenueByDay.find((d) => d.day === '2026-06-13')?.revenue).toBe(10);
+      expect(revenueByDay.find((d) => d.day === '2026-06-14')?.revenue).toBe(20);
+    });
+
+    it('keeps day boundaries across the spring DST change', async () => {
+      await createOrderRow(10, new Date('2026-03-04T04:30:00Z'));
+      await createOrderRow(20, new Date('2026-03-04T05:30:00Z'));
+      const { revenueByDay, kpis } = await getDashboard(7, new Date('2026-03-10T16:00:00Z'));
+      expect(revenueByDay[0].day).toBe('2026-03-04');
+      expect(daysWithRevenue(revenueByDay)).toEqual(['2026-03-04']);
+      expect(kpis.revenue).toBe(20);
+    });
+  });
 });

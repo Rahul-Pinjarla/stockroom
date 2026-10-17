@@ -21,7 +21,7 @@ export interface Dashboard {
 }
 
 export async function getDashboard(days: number, now: Date = new Date()): Promise<Dashboard> {
-  const tz = 'UTC';
+  const tz = config.storeTimezone;
 
   // Day arithmetic happens on the zoneless local timestamp so day boundaries survive DST changes.
   const { rows: startRows } = await pool.query(
