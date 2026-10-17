@@ -114,26 +114,39 @@ async function getValidDiscount(client: DbClient, code: string) {
   return discount as { code: string; percent_off: number };
 }
 
+async function claimStock(client: DbClient, productId: number, quantity: number) {
+  const { rows } = await client.query(
+    `UPDATE products SET stock = stock - $2
+      WHERE id = $1 AND stock >= $2
+      RETURNING id, name, price`,
+    [productId, quantity],
+  );
+  if (rows[0]) return rows[0] as { id: number; name: string; price: number };
+
+  const { rows: existing } = await client.query('SELECT name FROM products WHERE id = $1', [productId]);
+  if (!existing[0]) {
+    throw new HttpError(404, `Product ${productId} not found`);
+  }
+  throw new HttpError(409, `Not enough stock for ${existing[0].name}`);
+}
+
 export async function createOrder(input: CreateOrderInput): Promise<OrderDetail> {
   const orderId = await withTransaction(async (client) => {
+    const quantities = new Map<number, number>();
+    for (const item of input.items) {
+      quantities.set(item.productId, (quantities.get(item.productId) ?? 0) + item.quantity);
+    }
+    // Claim in a stable order so concurrent multi-product orders cannot deadlock.
+    const merged = [...quantities.entries()].sort(([a], [b]) => a - b);
+
     let subtotal = 0;
     const lines = [];
 
-    for (const item of input.items) {
-      const { rows } = await client.query(
-        'SELECT id, name, price, stock FROM products WHERE id = $1',
-        [item.productId],
-      );
-      const product = rows[0];
-      if (!product) {
-        throw new HttpError(404, `Product ${item.productId} not found`);
-      }
-      if (product.stock < item.quantity) {
-        throw new HttpError(409, `Not enough stock for ${product.name}`);
-      }
-      const lineTotal = product.price * item.quantity;
+    for (const [productId, quantity] of merged) {
+      const product = await claimStock(client, productId, quantity);
+      const lineTotal = product.price * quantity;
       subtotal += lineTotal;
-      lines.push({ product, quantity: item.quantity, lineTotal });
+      lines.push({ product, quantity, lineTotal });
     }
 
     let discountCode: string | null = null;
@@ -163,10 +176,6 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderDetail>
          VALUES ($1, $2, $3, $4, $5)`,
         [id, line.product.id, line.quantity, line.product.price, line.lineTotal],
       );
-      await client.query('UPDATE products SET stock = $1 WHERE id = $2', [
-        line.product.stock - line.quantity,
-        line.product.id,
-      ]);
     }
 
     return id;
