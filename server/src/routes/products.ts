@@ -4,7 +4,7 @@ import { pool } from '../db';
 
 const listQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
-  cursor: z.coerce.number().int().positive().optional(),
+  cursor: z.coerce.number().int().positive().max(2_147_483_647).optional(),
 });
 
 export const productRoutes: FastifyPluginAsync = async (app) => {

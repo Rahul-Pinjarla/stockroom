@@ -62,4 +62,9 @@ describe('GET /api/products', () => {
     const res = await app.inject({ url: '/api/products?cursor=abc' });
     expect(res.statusCode).toBe(400);
   });
+
+  it('rejects a cursor larger than the id column can hold', async () => {
+    const res = await app.inject({ url: '/api/products?cursor=99999999999' });
+    expect(res.statusCode).toBe(400);
+  });
 });
