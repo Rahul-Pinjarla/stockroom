@@ -50,6 +50,28 @@ describe('POST /api/orders/:id/refunds', () => {
     expect(second.json().status).toBe('refunded');
   });
 
+  it('refunds each line its share of a 10% discount: $36 for the $40 item and $54 for the $60 item', async () => {
+    await createDiscountCode('TEN', 10);
+    const cheap = await createProduct({ price: 40, stock: 10 });
+    const dear = await createProduct({ price: 60, stock: 10 });
+    const order = await placeOrder(
+      [
+        { productId: cheap.id, quantity: 1 },
+        { productId: dear.id, quantity: 1 },
+      ],
+      'TEN',
+    );
+    expect(order.total).toBe(90);
+
+    const cheapLine = order.items.find((i) => i.productId === cheap.id)!;
+    const dearLine = order.items.find((i) => i.productId === dear.id)!;
+
+    const first = await postRefund(order.id, { items: [{ orderItemId: cheapLine.id, quantity: 1 }] });
+    expect(first.json().refunds[0].amount).toBe(36);
+    const second = await postRefund(order.id, { items: [{ orderItemId: dearLine.id, quantity: 1 }] });
+    expect(second.json().refunds[0].amount).toBe(54);
+  });
+
   it('refunds exactly the order total across lines when cents do not divide evenly', async () => {
     await createDiscountCode('FIFTEEN', 15);
     const a = await createProduct({ price: 3.33, stock: 10 });
