@@ -44,10 +44,7 @@ export async function getDashboard(days: number): Promise<Dashboard> {
 
   const revenue = revenueByDay.reduce((sum, d) => sum + d.revenue, 0);
   const orders = revenueByDay.reduce((sum, d) => sum + d.orders, 0);
-  const averageOrderValue =
-    revenueByDay.length === 0
-      ? 0
-      : revenueByDay.reduce((sum, d) => sum + d.aov, 0) / revenueByDay.length;
+  const averageOrderValue = orders === 0 ? 0 : revenue / orders;
 
   const { rows: stockRows } = await pool.query(
     'SELECT count(*)::int AS count FROM products WHERE stock <= $1',

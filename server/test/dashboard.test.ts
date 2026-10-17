@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { pool } from '../src/db';
-import { app, createProduct, postOrder, resetDb } from './helpers';
+import { getDashboard } from '../src/services/dashboard';
+import { app, createOrderRow, createProduct, postOrder, resetDb } from './helpers';
 
 describe('GET /api/dashboard', () => {
   beforeEach(resetDb);
@@ -38,5 +39,20 @@ describe('GET /api/dashboard', () => {
     const { kpis } = (await app.inject({ url: '/api/dashboard' })).json();
 
     expect(kpis.lowStockProducts).toBe(1);
+  });
+
+  it('weights average order value by orders, not by days', async () => {
+    const day = 24 * 60 * 60 * 1000;
+    await createOrderRow(100, new Date(Date.now() - 2 * day));
+    for (let i = 0; i < 3; i++) await createOrderRow(10, new Date(Date.now() - day));
+
+    const { kpis } = await getDashboard(7);
+
+    expect(kpis.averageOrderValue).toBe(32.5);
+  });
+
+  it('reports zero average order value with no orders', async () => {
+    const { kpis } = await getDashboard(7);
+    expect(kpis.averageOrderValue).toBe(0);
   });
 });
