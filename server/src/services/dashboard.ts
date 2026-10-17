@@ -1,5 +1,6 @@
 import { config } from '../config';
 import { pool } from '../db';
+import { toDollars } from '../money';
 
 export interface DailyRevenue {
   day: string; // YYYY-MM-DD
@@ -32,7 +33,7 @@ export async function getDashboard(days: number, now: Date = new Date()): Promis
 
   const { rows: daily } = await pool.query(
     `SELECT to_char(d.day, 'YYYY-MM-DD') AS day,
-            COALESCE(SUM(o.total), 0) AS revenue,
+            COALESCE(SUM(o.total), 0)::float8 AS revenue,
             COUNT(o.id)::int AS orders
        FROM generate_series(
               ($3::timestamptz AT TIME ZONE $2)::date - ($4::int - 1),
@@ -48,16 +49,25 @@ export async function getDashboard(days: number, now: Date = new Date()): Promis
     [since, tz, now, days],
   );
 
-  const revenueByDay: DailyRevenue[] = daily.map((row) => ({
-    day: row.day,
-    revenue: row.revenue,
-    orders: row.orders,
-    aov: row.orders === 0 ? 0 : row.revenue / row.orders,
+  // Arithmetic stays in integer cents; dollars appear only in the returned values.
+  const dailyCents = daily.map((row) => ({
+    day: row.day as string,
+    revenue: Number(row.revenue),
+    orders: row.orders as number,
+    aov: row.orders === 0 ? 0 : Math.round(Number(row.revenue) / row.orders),
   }));
 
-  const revenue = revenueByDay.reduce((sum, d) => sum + d.revenue, 0);
-  const orders = revenueByDay.reduce((sum, d) => sum + d.orders, 0);
-  const averageOrderValue = orders === 0 ? 0 : revenue / orders;
+  const revenueByDay: DailyRevenue[] = dailyCents.map((d) => ({
+    day: d.day,
+    revenue: toDollars(d.revenue),
+    orders: d.orders,
+    aov: toDollars(d.aov),
+  }));
+
+  const revenueCents = dailyCents.reduce((sum, d) => sum + d.revenue, 0);
+  const orders = dailyCents.reduce((sum, d) => sum + d.orders, 0);
+  const revenue = toDollars(revenueCents);
+  const averageOrderValue = orders === 0 ? 0 : toDollars(Math.round(revenueCents / orders));
 
   const { rows: stockRows } = await pool.query(
     'SELECT count(*)::int AS count FROM products WHERE stock <= $1',
@@ -65,7 +75,7 @@ export async function getDashboard(days: number, now: Date = new Date()): Promis
   );
 
   const { rows: top } = await pool.query(
-    `SELECT p.id, p.name, SUM(oi.quantity)::int AS units, SUM(oi.line_total) AS revenue
+    `SELECT p.id, p.name, SUM(oi.quantity)::int AS units, SUM(oi.line_total)::float8 AS revenue
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
        JOIN products p ON p.id = oi.product_id
@@ -90,7 +100,7 @@ export async function getDashboard(days: number, now: Date = new Date()): Promis
       productId: row.id,
       name: row.name,
       units: row.units,
-      revenue: row.revenue,
+      revenue: toDollars(Number(row.revenue)),
     })),
   };
 }

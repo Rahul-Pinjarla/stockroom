@@ -1,5 +1,6 @@
 import { buildApp } from '../src/app';
 import { pool } from '../src/db';
+import { toCents } from '../src/money';
 
 export const app = buildApp();
 
@@ -18,12 +19,12 @@ export async function createProduct(
     [
       `TEST-${skuCounter}`,
       overrides.name ?? `Product ${skuCounter}`,
-      overrides.price ?? 10,
+      toCents(overrides.price ?? 10),
       overrides.stock ?? 10,
       overrides.createdAt ?? new Date(),
     ],
   );
-  return rows[0] as { id: number; name: string; price: number; stock: number };
+  return { ...rows[0], price: overrides.price ?? 10 } as { id: number; name: string; price: number; stock: number };
 }
 
 export async function createDiscountCode(
@@ -50,6 +51,12 @@ export async function createOrderRow(
   await pool.query(
     `INSERT INTO orders (customer_email, status, subtotal, discount_amount, total, created_at)
      VALUES ('seed@example.com', $1, $2, 0, $2, $3)`,
-    [status, total, createdAt],
+    [status, toCents(total), createdAt],
   );
+}
+
+export function expectWholeCents(value: number): void {
+  if (Math.round(value * 100) / 100 !== value) {
+    throw new Error(`Expected a whole number of cents, got ${value}`);
+  }
 }
