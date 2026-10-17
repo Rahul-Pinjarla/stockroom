@@ -5,7 +5,7 @@ import { toCents } from '../src/money';
 export const app = buildApp();
 
 export async function resetDb() {
-  await pool.query('TRUNCATE order_items, orders, discount_codes, products RESTART IDENTITY CASCADE');
+  await pool.query('TRUNCATE refund_items, refunds, order_items, orders, discount_codes, products RESTART IDENTITY CASCADE');
 }
 
 let skuCounter = 0;
