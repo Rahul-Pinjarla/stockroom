@@ -37,3 +37,9 @@ export async function createDiscountCode(code: string, percentOff: number, maxUs
 export function postOrder(body: unknown) {
   return app.inject({ method: 'POST', url: '/api/orders', payload: body as object });
 }
+
+export function expectWholeCents(value: number): void {
+  if (Math.round(value * 100) / 100 !== value) {
+    throw new Error(`Expected a whole number of cents, got ${value}`);
+  }
+}
