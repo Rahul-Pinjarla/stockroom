@@ -15,7 +15,7 @@ Issue #1. Every decision below was a gap in the issue; each says what I chose an
 
 ## Dashboard
 
-- **Revenue is net of refunds, and a refund counts on the day it was issued**, not on the day of the original order. Past days never change after the fact, and the chart matches the money that left on each day. The cost is that a day can show negative revenue.
+- **Revenue is net of refunds, and a refund counts on the day it was issued**, not on the day of the original order. Refunds do not rewrite the day of the sale, and the chart matches the money that left on each day (the one exception: cancelling an order later removes its refunds from the figures too). The cost is that a day can show negative revenue.
 - **Refunds of orders that were later cancelled are ignored**, because cancelling already removes the whole order from revenue; subtracting the refund again would double count.
 - **KPI: refund rate** (refunds issued in the range as a percentage of gross revenue in the range), with the dollar amount and count underneath. A rate tells an owner whether returns are a problem at a glance and stays comparable across the 7, 30 and 90 day ranges; the amount alone does not. A refund of an older order counts in the range it was issued but its sale is outside the range, so the rate can exceed 100% on a quiet week. With no gross revenue the card shows "—".
 - **Chart:** net revenue stays the area line; refunds are red bars below the zero line, so a refund-heavy day is visible without hiding the sales. The tooltip shows gross, refunds and net.

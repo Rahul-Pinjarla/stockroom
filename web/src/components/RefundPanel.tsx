@@ -25,8 +25,9 @@ export function RefundPanel({ order, onRefunded }: Props) {
   // The amount comes from the server so what staff confirm is exactly what will be refunded.
   useEffect(() => {
     setConfirming(false);
+    // Drop the old amount at once so "Review refund" stays off until the preview for these quantities arrives.
+    setPreview(null);
     if (items.length === 0) {
-      setPreview(null);
       setError(null);
       return;
     }

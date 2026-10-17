@@ -144,11 +144,12 @@ export async function getDashboard(days: number, now: Date = new Date()): Promis
   for (const row of top) {
     net.set(row.id, { productId: row.id, name: row.name, units: row.units, revenue: Number(row.revenue) });
   }
+  // Only products that sold in the range are ranked; a refund of an older sale must not add a negative entry.
   for (const row of refundedProducts) {
-    const entry = net.get(row.id) ?? { productId: row.id, name: row.name, units: 0, revenue: 0 };
+    const entry = net.get(row.id);
+    if (!entry) continue;
     entry.units -= row.units;
     entry.revenue -= Number(row.revenue);
-    net.set(row.id, entry);
   }
   const topProducts = [...net.values()]
     .sort((a, b) => b.revenue - a.revenue)

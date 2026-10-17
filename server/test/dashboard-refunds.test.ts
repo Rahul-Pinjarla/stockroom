@@ -100,4 +100,17 @@ describe('GET /api/dashboard with refunds', () => {
 
     expect(topProducts).toEqual([{ productId: product.id, name: product.name, units: 2, revenue: 40 }]);
   });
+
+  it('leaves a product off the top products when it only appears through a refund of an older sale', async () => {
+    const sold = await createProduct({ price: 20, stock: 100 });
+    const refundedOnly = await createProduct({ price: 20, stock: 100 });
+    await orderOf(sold.id, 1);
+    const old = await orderOf(refundedOnly.id, 1);
+    await ageOrder(old.id, 10);
+    await refundUnits(old, 1);
+
+    const { topProducts } = await dashboard(7);
+
+    expect(topProducts.map((p: { productId: number }) => p.productId)).toEqual([sold.id]);
+  });
 });
