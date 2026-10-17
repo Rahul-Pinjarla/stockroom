@@ -97,21 +97,30 @@ export async function getOrder(id: number): Promise<OrderDetail | null> {
   };
 }
 
-async function getValidDiscount(client: DbClient, code: string) {
-  const { rows } = await client.query('SELECT * FROM discount_codes WHERE code = $1', [
-    code.toUpperCase(),
-  ]);
-  const discount = rows[0];
+async function claimDiscount(client: DbClient, code: string) {
+  const normalized = code.toUpperCase();
+  const { rows } = await client.query(
+    `UPDATE discount_codes SET used_count = used_count + 1
+      WHERE code = $1
+        AND (max_uses IS NULL OR used_count < max_uses)
+        AND (expires_at IS NULL OR expires_at > now())
+      RETURNING code, percent_off`,
+    [normalized],
+  );
+  if (rows[0]) return rows[0] as { code: string; percent_off: number };
+
+  const { rows: existing } = await client.query(
+    'SELECT max_uses, used_count, expires_at FROM discount_codes WHERE code = $1',
+    [normalized],
+  );
+  const discount = existing[0];
   if (!discount) {
     throw new HttpError(400, 'Invalid discount code');
   }
-  if (discount.expires_at && discount.expires_at < new Date()) {
+  if (discount.expires_at && discount.expires_at <= new Date()) {
     throw new HttpError(400, 'Discount code has expired');
   }
-  if (discount.max_uses !== null && discount.used_count > discount.max_uses) {
-    throw new HttpError(400, 'Discount code has already been used');
-  }
-  return discount as { code: string; percent_off: number };
+  throw new HttpError(400, 'Discount code has already been used');
 }
 
 async function claimStock(client: DbClient, productId: number, quantity: number) {
@@ -152,12 +161,9 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderDetail>
     let discountCode: string | null = null;
     let discountAmount = 0;
     if (input.discountCode) {
-      const discount = await getValidDiscount(client, input.discountCode);
+      const discount = await claimDiscount(client, input.discountCode);
       discountCode = discount.code;
       discountAmount = subtotal * (discount.percent_off / 100);
-      await client.query('UPDATE discount_codes SET used_count = used_count + 1 WHERE code = $1', [
-        discount.code,
-      ]);
     }
 
     const total = subtotal - discountAmount;

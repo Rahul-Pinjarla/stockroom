@@ -89,6 +89,45 @@ describe('discount codes', () => {
 
     expect(res.statusCode).toBe(400);
   });
+
+  const usedCount = async (code: string) =>
+    (await pool.query('SELECT used_count FROM discount_codes WHERE code = $1', [code])).rows[0]
+      .used_count as number;
+  const orderWith = (productId: number, discountCode: string, quantity = 1) =>
+    postOrder({ customerEmail: 'ava@example.com', items: [{ productId, quantity }], discountCode });
+
+  it('rejects a second use of a single-use code', async () => {
+    const p = await createProduct();
+    await createDiscountCode('ONCE', 10, 1);
+    expect((await orderWith(p.id, 'ONCE')).statusCode).toBe(201);
+    const second = await orderWith(p.id, 'ONCE');
+    expect(second.statusCode).toBe(400);
+    expect(second.json().error).toMatch(/already been used/);
+    expect(await usedCount('ONCE')).toBe(1);
+  });
+
+  it('counts a lower-case code against the upper-case single-use code', async () => {
+    const p = await createProduct();
+    await createDiscountCode('ONCE', 10, 1);
+    expect((await orderWith(p.id, 'once')).statusCode).toBe(201);
+    expect((await orderWith(p.id, 'ONCE')).statusCode).toBe(400);
+  });
+
+  it('lets only one concurrent order use a single-use code', async () => {
+    const p = await createProduct({ stock: 100 });
+    await createDiscountCode('ONCE', 10, 1);
+    const results = await Promise.all(Array.from({ length: 5 }, () => orderWith(p.id, 'ONCE')));
+    expect(results.filter((r) => r.statusCode === 201)).toHaveLength(1);
+    expect(results.filter((r) => r.statusCode === 400)).toHaveLength(4);
+    expect(await usedCount('ONCE')).toBe(1);
+  });
+
+  it('does not consume a code when the order fails on stock', async () => {
+    const p = await createProduct({ stock: 1 });
+    await createDiscountCode('ONCE', 10, 1);
+    expect((await orderWith(p.id, 'ONCE', 2)).statusCode).toBe(409);
+    expect(await usedCount('ONCE')).toBe(0);
+  });
 });
 
 describe('stock handling', () => {
