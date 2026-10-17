@@ -18,7 +18,7 @@ describe('GET /api/dashboard', () => {
     expect(kpis.revenue).toBe(60);
     expect(kpis.orders).toBe(2);
     expect(kpis.averageOrderValue).toBe(30);
-    expect(revenueByDay).toHaveLength(1);
+    expect(revenueByDay).toHaveLength(7);
   });
 
   it('excludes cancelled orders', async () => {
@@ -54,5 +54,36 @@ describe('GET /api/dashboard', () => {
   it('reports zero average order value with no orders', async () => {
     const { kpis } = await getDashboard(7);
     expect(kpis.averageOrderValue).toBe(0);
+  });
+
+  describe('daily series', () => {
+    const NOW = new Date('2026-06-15T16:00:00Z');
+
+    it('includes days with no orders as zero entries', async () => {
+      await createOrderRow(10, new Date('2026-06-10T16:00:00Z'));
+      await createOrderRow(20, new Date('2026-06-13T16:00:00Z'));
+
+      const { revenueByDay } = await getDashboard(7, NOW);
+
+      expect(revenueByDay.map((d) => d.day)).toEqual([
+        '2026-06-09', '2026-06-10', '2026-06-11', '2026-06-12', '2026-06-13', '2026-06-14', '2026-06-15',
+      ]);
+      for (const day of ['2026-06-11', '2026-06-12']) {
+        expect(revenueByDay.find((d) => d.day === day)).toMatchObject({ revenue: 0, orders: 0, aov: 0 });
+      }
+      expect(revenueByDay.find((d) => d.day === '2026-06-10')).toMatchObject({ revenue: 10, orders: 1, aov: 10 });
+    });
+
+    it('returns a full zero series when there are no orders', async () => {
+      const { revenueByDay, kpis } = await getDashboard(30, NOW);
+      expect(revenueByDay).toHaveLength(30);
+      expect(revenueByDay.every((d) => d.revenue === 0 && d.orders === 0 && d.aov === 0)).toBe(true);
+      expect(kpis.orders).toBe(0);
+    });
+
+    it('returns exactly one entry for a one-day range', async () => {
+      const { revenueByDay } = await getDashboard(1, NOW);
+      expect(revenueByDay.map((d) => d.day)).toEqual(['2026-06-15']);
+    });
   });
 });
