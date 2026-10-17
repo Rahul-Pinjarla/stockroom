@@ -128,6 +128,15 @@ describe('discount codes', () => {
     expect((await orderWith(p.id, 'ONCE', 2)).statusCode).toBe(409);
     expect(await usedCount('ONCE')).toBe(0);
   });
+
+  it('rejects an expired code and leaves its use count unchanged', async () => {
+    const p = await createProduct();
+    await createDiscountCode('OLD', 20, null, new Date(Date.now() - 86_400_000));
+    const res = await orderWith(p.id, 'OLD');
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/expired/);
+    expect(await usedCount('OLD')).toBe(0);
+  });
 });
 
 describe('stock handling', () => {
